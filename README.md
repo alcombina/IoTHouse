@@ -3,7 +3,7 @@ This project aims to create a small arduino based IoT setup for my house, to con
 
 
 ## Todo List
-- [ ] Setup platform IO project
+- [x] Setup platform IO project
 - [ ] Blink led 
 - [ ] Connect to wifi
 - [ ] Publish data
