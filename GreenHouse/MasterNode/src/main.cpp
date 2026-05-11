@@ -1,9 +1,8 @@
 #include <Arduino.h>
+#include "DHTSensor.h"
 #include "layout.h"
 #include "secrets.h"
-#include "TinyMatrixEngine.h"
-#include "DHTSensor.h"
-#include "WiFiS3.h"
+#include "StateMachine.h"
 
 // DHT Sensor setup
 DHTSensor dhtSensor(DHT_DATA_PIN, DHT22, 4000, true); // Pin, Type, Frequency, Verbose
@@ -12,52 +11,41 @@ DHTSensor dhtSensor(DHT_DATA_PIN, DHT22, 4000, true); // Pin, Type, Frequency, V
 TinyMatrixEngine ledMatrix;
 
 // WiFi setup
-#define POST_INTERVAL 10000 // Time between POST requests in milliseconds
 unsigned long lastPostTime = 0;
 WiFiClient client;
 
-// State machine
-enum states {
-  INIT,
-  RUNNING,
-  ERROR
-};
-
-states state;
-const long initRetryMillis = 3000;
+// Global state variable
+states globalState = INIT;
 
 void setup() {
-    // Initialize components
-  state = INIT;
+  // Initialize components
   Serial.begin(9600);
 
   // Initialize LED Matrix
   ledMatrix.begin();
-  ledMatrix.setState(INIT);
 
   // Initialize DHT Sensor
   dhtSensor.begin();
+
+  switchState(globalState, INIT, ledMatrix);
+  delay(3000); 
 }
 
 void loop() {
-  static unsigned long lastClock = -initRetryMillis; // Force immediate connection attempt on startup
+  static unsigned long msecLst = -INIT_INTERVAL; // Force immediate connection attempt on startup
 
-  switch (state)
+  switch (globalState)
   {
   case INIT:
-    if (millis() - lastClock < initRetryMillis) {
-      break; // Wait for 3 seconds before trying to connect again
+    if (millis() - msecLst > INIT_INTERVAL) {
+      msecLst = millis();
+      if (getWifiStatus() != WL_CONNECTED) {
+        connectToWiFi(WIFI_NETWORK_NAME, WIFI_PASSWORD);
+      } else {
+        Serial.println("\nConnected to WiFi!\n");
+        switchState(globalState, RUNNING, ledMatrix);
+      }
     }
-
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("Connecting to WiFi...");
-      WiFi.begin(WIFI_NETWORK_NAME, WIFI_PASSWORD);
-    } else {
-      Serial.println("\nConnected to WiFi!");
-      state = RUNNING;
-      ledMatrix.setState(RUNNING);
-    }
-
     break;
   case RUNNING:
     // Read DHT sensor data
@@ -65,6 +53,11 @@ void loop() {
     static float humidity = 0;
     temperature = dhtSensor.readTemperature();
     humidity = dhtSensor.readHumidity();
+
+    if (millis() - msecLst > POST_INTERVAL) {
+      msecLst = millis();
+      postTempHum(client, WEB_ADDRESS, temperature, humidity);
+    }
     break;
   case ERROR:
     // Error handling code
